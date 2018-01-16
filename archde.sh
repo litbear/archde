@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 如果某个命令出现错误(返回非 0 值)，则此脚本会直接退出
 set -e
 
 # Arch Linux Desktop Environment (archde)
@@ -24,13 +25,21 @@ CPU_INTEL=""
 VIRTUALBOX=""
 GRUB_CMDLINE_LINUX=""
 
+# 颜色由转义字符串表示 
+# 转义字符串由 <Esc>[FormatCodem 组成
+# shell 中 <Esc> 字符可以用
+# \e \033 \x1B 这三种写法表示
+# echo -e 开启解析转义字符串功能
+# \e[0m 可以移除所有的颜色与格式属性 常被放在行尾
 RED='\033[0;31m'
 NC='\033[0m'
 
+# 导入配置文件
 function configuration_install() {
     source archde.conf
 }
 
+# 检查变量
 function check_variables() {
     check_variables_value "KEYS" "$KEYS"
     check_variables_value "DEVICE" "$DEVICE"
@@ -50,30 +59,40 @@ function check_variables() {
     check_variables_boolean "REBOOT" "$REBOOT"
 }
 
+# 检查变量是否被设置
 function check_variables_value() {
     NAME=$1
     VALUE=$2
+    # -z 字符串长度为 0
     if [ -z "$VALUE" ]; then
         echo "$NAME environment variable must have a value."
         exit
     fi
 }
 
+# 检查变量是否是布尔值
 function check_variables_boolean() {
     NAME=$1
     VALUE=$2
     check_variables_list "$NAME" "$VALUE" "true false"
 }
 
+# 检查变量是否在给定的列表中
 function check_variables_list() {
     NAME=$1
     VALUE=$2
     VALUES=$3
     REQUIRED=$4
+    # -o 逻辑或
+    # 如果不指定第四个参数 或 第四个参数为字符串 true
+    # 则要检查第二个参数是否为空字符串
     if [ "$REQUIRED" == "" -o "$REQUIRED" == "true" ]; then
         check_variables_value "$NAME" "$VALUE"
     fi
 
+    # 如果指定了第二个参数，则要判断第二个参数是否在第三个参数内
+    # grep -w 匹配单词，而不是单词的一部分
+    # grep -F "$VALUE" 为字符串，而不是一个正则表达式
     if [ "$VALUE" != "" -a -z "$(echo "$VALUES" | grep -F -w "$VALUE")" ]; then
         echo "$NAME environment variable value [$VALUE] must be in [$VALUES]."
         exit
@@ -81,14 +100,17 @@ function check_variables_list() {
 }
 
 function warning() {
-    echo "Bienvenido al script de instalacion de Arch Linux"
+    echo "Welcome to use Arch Linux install scrpt!"
     echo ""
-    echo -e "${RED}Precaucion"'!'"${NC}"
-    echo -e "${RED}Toda tu informacion sera eliminada del disco${NC}"
-    echo -e "${RED}Sin posibilidad de Recuperacion.${NC}"
-    echo -e "${RED}NOTA: Este software se entrega tal como esta, sin soporte ni garanatias de ningun tipo.${NC}"
+    echo -e "${RED}Attention "'!'"${NC}"
+    echo -e "${RED}All information on this task will be deleted${NC}"
+    echo -e "${RED}and can not be restored${NC}"
+    echo -e "${RED}NOTE: This procedure is for learning and exchange, and all use of the consequences of your own.${NC}"
     echo ""
+    # 读取输入到变量 yn
     read -p "Quieres continuar? [y/n] " yn
+    # 如果输入如果输入以y开头则继续 
+    # 如果以n开头或其他 则退出该脚本
     case $yn in
         [Yy]* )
             ;;
@@ -101,11 +123,14 @@ function warning() {
     esac
 }
 
+# 载入键盘布局
 function init() {
     loadkeys $KEYS
 }
 
+# 判断硬件环境
 function facts() {
+    # 以 -d 是否存在文件夹判断是否是uefi方式启动
     if [ -d /sys/firmware/efi ]; then
         BIOS_TYPE="uefi"
     else
@@ -118,6 +143,7 @@ function facts() {
         DEVICE_TRIM="false"
     fi
 
+    # 判断是否是 Intel CPU
     if [ -n "$(lscpu | grep GenuineIntel)" ]; then
         CPU_INTEL="true"
     fi
@@ -127,28 +153,33 @@ function facts() {
     fi
 }
 
+# 配置网络
 function network_install() {
     if [ -n "$WIFI_INTERFACE" ]; then
         cp /etc/netctl/examples/wireless-wpa /etc/netctl
-      	chmod 600 /etc/netctl
+          chmod 600 /etc/netctl
 
-      	sed -i 's/^Interface=.*/Interface='"$WIFI_INTERFACE"'/' /etc/netctl
-      	sed -i 's/^ESSID=.*/ESSID='"$WIFI_ESSID"'/' /etc/netctl
-      	sed -i 's/^Key=.*/Key='\''$WIFI_KEY'\''/' /etc/netctl
-      	if [ "$WIFI_HIDDEN" == "true" ]; then
-      		sed -i 's/^#Hidden=.*/Hidden=yes/' /etc/netctl
-      	fi
+        # 貌似不太对啊 sed应该操作 /etc/netctl/wireless-wpa 文件
+          sed -i 's/^Interface=.*/Interface='"$WIFI_INTERFACE"'/' /etc/netctl
+          sed -i 's/^ESSID=.*/ESSID='"$WIFI_ESSID"'/' /etc/netctl
+          sed -i 's/^Key=.*/Key='\''$WIFI_KEY'\''/' /etc/netctl
+          if [ "$WIFI_HIDDEN" == "true" ]; then
+              sed -i 's/^#Hidden=.*/Hidden=yes/' /etc/netctl
+          fi
 
-      	netctl start wireless-wpa
+          netctl start wireless-wpa
     fi
 
     ping -c 5 $PING_HOSTNAME
+    # $? 上一条命令的返回值
+    # -ne 不等于
     if [ $? -ne 0 ]; then
         echo "ERROR!! conexion no disponible, no se puede continuar."
         exit
     fi
 }
 
+# 磁盘分区 先略过不看吧
 function partition() {
     sgdisk --zap-all $DEVICE
     wipefs -a $DEVICE
@@ -244,11 +275,19 @@ function partition() {
     UUID_ROOT=$(blkid -s UUID -o value $PARTITION_ROOT)
 }
 
+# 安装基本系统 函数名应该改一下 
 function install() {
     pacman -Sy --noconfirm reflector
+    # 应该是筛选最快的镜像
     reflector --verbose -l 5 --sort rate --save /etc/pacman.d/mirrorlist
+    # 软件数据库同步
     pacman -Syy
+    # 安装系统
     pacstrap /mnt base base-devel
+
+    # 1) 应先备份mirrorlist 再使用 rankmirrors 排序(较慢)
+    # 2) 或操作mirrorlist 将东软等国内镜像提前(较快)
+    # 3) https://www.archlinux.org/mirrorlist/?country=CN&protocol=http&protocol=https&ip_version=4&use_mirror_status=on
 }
 
 function kernels() {
@@ -259,6 +298,7 @@ function kernels() {
 }
 
 function configuration() {
+    # 生成分区表
     genfstab -U /mnt >> /mnt/etc/fstab
 
     if [ "$DEVICE_TRIM" == "true" ]; then
@@ -302,10 +342,12 @@ function virtualbox() {
 }
 
 function packages() {
+    # 如果文件系统类型为 btrft 则安装 btrfs-progs
     if [ "$FILE_SYSTEM_TYPE" == "btrfs" ]; then
         arch-chroot /mnt pacman -Sy --noconfirm btrfs-progs
     fi
 
+    # 如果指定了 $YAOURT 选项 则安装yaourt
     if [ "$YAOURT" == "true" -o -n "$PACKAGES_YAOURT" ]; then
         echo "" >> /mnt/etc/pacman.conf
         echo "[archlinuxfr]" >> /mnt/etc/pacman.conf
@@ -315,10 +357,12 @@ function packages() {
         arch-chroot /mnt pacman -Sy --noconfirm yaourt
     fi
 
+    # 安装指定的pacman包
     if [ -n "$PACKAGES_PACMAN" ]; then
         arch-chroot /mnt pacman -Sy --noconfirm --needed $PACKAGES_PACMAN
     fi
 
+    # 安装指定的yaourt包
     if [ -n "$PACKAGES_YAOURT" ]; then
         arch-chroot /mnt yaourt -S --noconfirm --needed $PACKAGES_YAOURT
     fi
@@ -337,6 +381,7 @@ function mkinitcpio() {
 }
 
 function bootloader() {
+    # 如果是Intel的CPU 且不在virtualbox虚拟机中 则执行以下代码
     if [ "$CPU_INTEL" == "true" -a "$VIRTUALBOX" != "true" ]; then
         arch-chroot /mnt pacman -Sy --noconfirm intel-ucode
     fi
@@ -370,9 +415,13 @@ function bootloader() {
 }
 
 function user() {
+    # 添加新用户
     arch-chroot /mnt useradd -m -g users -G audio,lp,optical,storage,video,wheel,games,power,scanner -s /bin/bash $USER_NAME
+    # 为新用户指定密码
     printf "$USER_PASSWORD\n$USER_PASSWORD" | arch-chroot /mnt passwd $USER_NAME
+    # 安装sudo
     arch-chroot /mnt pacman -Sy sudo
+    # 配置sudo
     sed -i 's/#%wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 }
 
@@ -466,20 +515,30 @@ function desktop_environment_lxde() {
     arch-chroot /mnt systemctl enable lxdm.service
 }
 
+# 卸载新系统目录 并重启
 function end() {
     umount -R /mnt
     reboot
 }
 
 function main() {
+    # 导入配置文件
     configuration_install
+    # 检查变量
     check_variables
+    # 输出警告信息
     warning
+    # 载入键盘布局
     init
+    # 检测硬件环境
     facts
+    # 配置网络
     network_install
+    # 磁盘分区
     partition
+    # 安装系统
     install
+    # 内核相关 暂时略过
     kernels
     configuration
     network
@@ -493,6 +552,7 @@ function main() {
     if [ "$DESKTOP_ENVIRONMENT" != "" ]; then
         desktop_environment
     fi
+    # 卸载新系统目录 并重启
     if [ "$REBOOT" == "true" ]; then
         end
     fi
